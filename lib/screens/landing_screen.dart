@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'login_screen.dart';
 import 'registration_screen.dart';
+import 'teacher_login_screen.dart';
 
 class LandingScreen extends StatefulWidget {
   const LandingScreen({super.key});
@@ -85,7 +86,7 @@ class _LandingScreenState extends State<LandingScreen>
                   height: 200,
                   decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: Colors.white.withValues(alpha: 0.05)))),
+                      color: Colors.white.withOpacity(0.05)))),
           Positioned(
               bottom: 200,
               left: -50,
@@ -94,7 +95,7 @@ class _LandingScreenState extends State<LandingScreen>
                   height: 160,
                   decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: Colors.white.withValues(alpha: 0.04)))),
+                      color: Colors.white.withOpacity(0.04)))),
           SafeArea(
             child: Column(
               children: [
@@ -115,6 +116,53 @@ class _LandingScreenState extends State<LandingScreen>
                         _buildButtons(),
                         const SizedBox(height: 20),
                         _buildFooter(),
+                        const SizedBox(height: 16),
+
+                        // Teacher Login Button
+                        GestureDetector(
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const TeacherLoginScreen(),
+                            ),
+                          ),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 20, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                  color: Colors.white.withOpacity(0.2)),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.school_rounded,
+                                  size: 16,
+                                  color: Colors.white.withOpacity(0.7),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Login as Teacher',
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.7),
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Icon(
+                                  Icons.arrow_forward_ios_rounded,
+                                  size: 12,
+                                  color: Colors.white.withOpacity(0.5),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ).animate(delay: 700.ms).fadeIn(),
+
                         const SizedBox(height: 24),
                       ],
                     ),
@@ -133,9 +181,9 @@ class _LandingScreenState extends State<LandingScreen>
       margin: const EdgeInsets.symmetric(horizontal: 28),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.12),
+        color: Colors.white.withOpacity(0.12),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+        border: Border.all(color: Colors.white.withOpacity(0.2)),
       ),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         Container(
@@ -172,19 +220,19 @@ class _LandingScreenState extends State<LandingScreen>
             height: 110,
             decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.white.withValues(alpha: 0.08),
+                color: Colors.white.withOpacity(0.08),
                 border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.15), width: 1.5)),
+                    color: Colors.white.withOpacity(0.15), width: 1.5)),
             child: Center(
                 child: Container(
               width: 82,
               height: 82,
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.95),
+                color: Colors.white.withOpacity(0.95),
                 borderRadius: BorderRadius.circular(22),
                 boxShadow: [
                   BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.2),
+                      color: Colors.black.withOpacity(0.2),
                       blurRadius: 20,
                       offset: const Offset(0, 8))
                 ],
@@ -203,7 +251,7 @@ class _LandingScreenState extends State<LandingScreen>
           const SizedBox(height: 4),
           Text('Anti-proxy attendance system',
               style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.65), fontSize: 13)),
+                  color: Colors.white.withOpacity(0.65), fontSize: 13)),
         ]),
       ),
     ).animate().fadeIn(duration: 600.ms, delay: 100.ms);
@@ -214,10 +262,9 @@ class _LandingScreenState extends State<LandingScreen>
       Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
         decoration: BoxDecoration(
-          color: const Color(0xFF22C55E).withValues(alpha: 0.15),
+          color: const Color(0xFF22C55E).withOpacity(0.15),
           borderRadius: BorderRadius.circular(20),
-          border:
-              Border.all(color: const Color(0xFF22C55E).withValues(alpha: 0.3)),
+          border: Border.all(color: const Color(0xFF22C55E).withOpacity(0.3)),
         ),
         child: const Text('100% Proxy-Free Guarantee',
             style: TextStyle(
@@ -229,7 +276,7 @@ class _LandingScreenState extends State<LandingScreen>
       Text('Secure attendance\nfor your university',
           textAlign: TextAlign.center,
           style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.95),
+              color: Colors.white.withOpacity(0.95),
               fontSize: 24,
               fontWeight: FontWeight.w700,
               height: 1.2,
@@ -253,16 +300,16 @@ class _LandingScreenState extends State<LandingScreen>
           width: double.infinity,
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.1),
+            color: Colors.white.withOpacity(0.1),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+            border: Border.all(color: Colors.white.withOpacity(0.15)),
           ),
           child: Row(children: [
             Container(
               width: 44,
               height: 44,
               decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.15),
+                  color: Colors.white.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(12)),
               child: Icon(_features[_currentFeature].icon,
                   color: Colors.white, size: 22),
@@ -280,8 +327,7 @@ class _LandingScreenState extends State<LandingScreen>
                   const SizedBox(height: 2),
                   Text(_features[_currentFeature].desc,
                       style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.65),
-                          fontSize: 12)),
+                          color: Colors.white.withOpacity(0.65), fontSize: 12)),
                 ])),
           ]),
         ),
@@ -299,7 +345,7 @@ class _LandingScreenState extends State<LandingScreen>
                     decoration: BoxDecoration(
                       color: i == _currentFeature
                           ? Colors.white
-                          : Colors.white.withValues(alpha: 0.3),
+                          : Colors.white.withOpacity(0.3),
                       borderRadius: BorderRadius.circular(3),
                     ),
                   ))),
@@ -338,8 +384,8 @@ class _LandingScreenState extends State<LandingScreen>
               MaterialPageRoute(builder: (_) => const RegistrationScreen())),
           style: OutlinedButton.styleFrom(
               foregroundColor: Colors.white,
-              side: BorderSide(
-                  color: Colors.white.withValues(alpha: 0.5), width: 1.5),
+              side:
+                  BorderSide(color: Colors.white.withOpacity(0.5), width: 1.5),
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16))),
           child:
@@ -369,24 +415,24 @@ class _LandingScreenState extends State<LandingScreen>
                           Icons.verified_outlined
                         ][e.key],
                         size: 11,
-                        color: Colors.white.withValues(alpha: 0.4)),
+                        color: Colors.white.withOpacity(0.4)),
                     const SizedBox(width: 3),
                     Text(e.value,
                         style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.4),
+                            color: Colors.white.withOpacity(0.4),
                             fontSize: 10)),
                     if (e.key < 2)
                       Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 6),
                           child: Text('·',
                               style: TextStyle(
-                                  color: Colors.white.withValues(alpha: 0.3)))),
+                                  color: Colors.white.withOpacity(0.3)))),
                   ]))
               .toList()),
       const SizedBox(height: 6),
       Text('v1.0.0 — For authorized students only',
-          style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.25), fontSize: 10)),
+          style:
+              TextStyle(color: Colors.white.withOpacity(0.25), fontSize: 10)),
     ]).animate(delay: 600.ms).fadeIn();
   }
 }
