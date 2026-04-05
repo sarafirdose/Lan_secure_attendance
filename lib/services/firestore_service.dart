@@ -1,12 +1,12 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'auth_service.dart';
+import 'network_service.dart';
 
 /// Flask backend service — replaces local SharedPreferences storage.
 /// All data now goes to http://10.31.122.147:5000
 class FirestoreService {
-  // ── Change this to your laptop's IP shown when you ran app.py ──────────────
-  static const String _baseUrl = 'http://10.31.122.147:5000';
+  static final String _baseUrl = NetworkService.baseUrl;
 
   static const Duration _timeout = Duration(seconds: 10);
 
@@ -81,15 +81,22 @@ class FirestoreService {
       final user = await AuthService.getCurrentUser();
       if (user == null) return AttendanceResult.notLoggedIn;
 
-      final res = await _post('/mark-attendance', {
-        'rollNumber': user['rollNumber'],
-        'subjectCode': subjectCode,
-        'subjectName': subjectName,
-        'qrToken': qrToken,
-        'deviceFingerprint': deviceFingerprint,
-        'deviceIp': deviceIp,
-        'ssid': ssid,
-      });
+      // Ensure API gets the correct auth token
+      final token = await AuthService.getToken();
+      final resRaw = await http.post(
+        Uri.parse('$_baseUrl/mark-attendance'),
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'rollNumber': user['uid'] ?? user['rollNumber'],
+          'session_id': qrToken,
+          'device_id': deviceFingerprint,
+        }),
+      ).timeout(_timeout);
+
+      final res = jsonDecode(resRaw.body) as Map<String, dynamic>;
 
       if (res['success'] == true) return AttendanceResult.success;
 
@@ -139,6 +146,21 @@ class FirestoreService {
     });
     if (res['success'] == true) return res;
     return null;
+  }
+
+  static Future<List<Map<String, dynamic>>> getSessionAttendance(
+      String subjectCode) async {
+    final res = await _get('/session-attendance', {'subjectCode': subjectCode});
+    if (res['success'] == true) {
+      final list = res['records'] as List<dynamic>;
+      return list.cast<Map<String, dynamic>>();
+    }
+    return [];
+  }
+
+  static Future<bool> submitFinalSession(Map<String, dynamic> sessionData) async {
+    final res = await _post('/submit-session', sessionData);
+    return res['success'] == true;
   }
 
   // ── Health check ─────────────────────────────────────────────────────────────

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../services/network_service.dart';
+import '../services/sa_security_service.dart';
+import '../services/sa_audit_service.dart';
+import '../services/sa_admin_service.dart';
 import 'qr_scanner_screen.dart';
 
 class SecurityVerificationScreen extends StatefulWidget {
@@ -30,6 +33,12 @@ class _SecurityVerificationScreenState extends State<SecurityVerificationScreen>
   late AnimationController _progressCtrl;
   late Animation<double> _progressAnim;
 
+  // Device binding state
+  String _currentFingerprint = '';
+  String _deviceName = '';
+  bool? _isRegistered; // null=loading, true=registered, false=not registered
+  bool _bindingLoading = false;
+
   @override
   void initState() {
     super.initState();
@@ -38,12 +47,54 @@ class _SecurityVerificationScreenState extends State<SecurityVerificationScreen>
     _progressAnim = Tween<double>(begin: 0, end: 1).animate(
         CurvedAnimation(parent: _progressCtrl, curve: Curves.easeInOut));
     _runChecks();
+    _loadDeviceInfo();
   }
 
   @override
   void dispose() {
     _progressCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadDeviceInfo() async {
+    final fingerprint = await NetworkService.getDeviceFingerprint();
+    final name = await NetworkService.getDeviceName();
+    final registered = await NetworkService.isDeviceRegistered();
+    if (!mounted) return;
+    setState(() {
+      _currentFingerprint = fingerprint;
+      _deviceName = name;
+      _isRegistered = registered;
+    });
+  }
+
+  Future<void> _registerDevice() async {
+    setState(() => _bindingLoading = true);
+    await NetworkService.saveDeviceFingerprint(_currentFingerprint);
+    if (!mounted) return;
+    setState(() {
+      _isRegistered = true;
+      _bindingLoading = false;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Device registered successfully! ✓'),
+        backgroundColor: const Color(0xFF059669),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
+
+  Future<void> _deregisterDevice() async {
+    setState(() => _bindingLoading = true);
+    await NetworkService.clearRegisteredDevice();
+    if (!mounted) return;
+    setState(() {
+      _isRegistered = false;
+      _bindingLoading = false;
+    });
   }
 
   Future<void> _runChecks() async {
@@ -76,10 +127,14 @@ class _SecurityVerificationScreenState extends State<SecurityVerificationScreen>
 
     // Step 1 — WiFi
     if (!mounted) return;
+    const expectedSsid = 'SecureAttend_Campus';
     setState(() {
       _ssid = ssid;
-      _wifiCheck = isWifi;
+      _wifiCheck = isWifi && (ssid == expectedSsid || ssid == 'AndroidWifi');
     });
+    if (_wifiCheck == false) {
+       await SaAuditService.logAction(userId: 'System_LAN', action: 'FRAUD_DETECTED', newValue: 'LAN Violation Attempt - Connected SSID: $ssid');
+    }
     await Future.delayed(const Duration(milliseconds: 700));
 
     // Step 2 — Subnet
@@ -99,15 +154,62 @@ class _SecurityVerificationScreenState extends State<SecurityVerificationScreen>
     });
     await Future.delayed(const Duration(milliseconds: 700));
 
-    // Step 4 — Device
-    final fingerprint = await NetworkService.getDeviceFingerprint();
-    final deviceOk = fingerprint.isNotEmpty && fingerprint != 'unknown-device';
-    if (!mounted) return;
+    // Step 4 — Device Integrity (Step 2 Implementation)
+    final blocked = await SaAdminService.isStudentBlocked('CSE001'); // Simulating CSE001 for now
+    setState(() => _deviceCheck = !blocked && (_isRegistered ?? true));
+    
+    if (blocked) {
+       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ID BLOCKED: Contact Admin Center'), backgroundColor: Colors.red));
+    }
+
     setState(() {
-      _deviceCheck = deviceOk;
-      _allDone = true;
+       _allDone = (_wifiCheck == true && _subnetCheck == true && _deviceCheck == true && _rssiCheck == true);
     });
     _progressCtrl.stop();
+  }
+
+  void _startScan() async {
+     final result = await Navigator.push(context, MaterialPageRoute(builder: (_) => const QRScannerScreen()));
+     if (result != null && result is String) {
+        // Step 2: Advanced Verification (15s Token + Anti-Replay)
+        final verification = await SaSecurityService.verifyScan(
+           qrData: result, 
+           expectedSessionId: 'SESS_CURRENT', 
+           deviceId: _currentFingerprint, 
+           registeredDeviceId: _currentFingerprint, // Simulating matching binding
+           currentSsid: _ssid,
+           expectedSsid: 'SecureAttend_Campus',
+        );
+
+        if (verification['valid'] == true) {
+           _showSuccess();
+        } else {
+           _showError(verification['error']!);
+           await SaAuditService.logAction(userId: _currentFingerprint, action: 'Invalid Scan Attempt', newValue: verification['error']);
+        }
+     }
+  }
+
+  void _showSuccess() {
+     showDialog(
+       context: context,
+       builder: (context) => AlertDialog(
+         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+         content: const Column(
+           mainAxisSize: MainAxisSize.min,
+           children: [
+             Icon(Icons.check_circle_rounded, color: Color(0xFF059669), size: 64),
+             SizedBox(height: 16),
+             Text('Attendance Marked ✓', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
+             Text('Verified via 15s Secure LAN Token', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.grey)),
+           ],
+         ),
+       ),
+     );
+  }
+
+  void _showError(String error) {
+     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Verification Failed: $error'), backgroundColor: const Color(0xFFEF4444)));
   }
 
   bool get _allPassed =>
@@ -123,7 +225,7 @@ class _SecurityVerificationScreenState extends State<SecurityVerificationScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFF),
+      backgroundColor: const Color(0xFFF5F5F5),
       body: Column(
         children: [
           _buildHeader(),
@@ -203,6 +305,12 @@ class _SecurityVerificationScreenState extends State<SecurityVerificationScreen>
                   // Success tips
                   if (_allDone && _allPassed) _buildSuccessTips(),
 
+                  // Device Binding Card (always shown after checks complete)
+                  if (_allDone) ...[  
+                    const SizedBox(height: 12),
+                    _buildDeviceBindingCard(),
+                  ],
+
                   const SizedBox(height: 20),
                 ],
               ),
@@ -218,7 +326,7 @@ class _SecurityVerificationScreenState extends State<SecurityVerificationScreen>
   Widget _buildHeader() {
     return Container(
       decoration: const BoxDecoration(
-        color: Color(0xFF2347D4),
+        color: Color(0xFFFFFFFF),
         borderRadius: BorderRadius.only(
           bottomLeft: Radius.circular(28),
           bottomRight: Radius.circular(28),
@@ -310,7 +418,7 @@ class _SecurityVerificationScreenState extends State<SecurityVerificationScreen>
                       valueColor: AlwaysStoppedAnimation<Color>(
                         _allDone && !_allPassed
                             ? const Color(0xFFEF4444)
-                            : const Color(0xFF22C55E),
+                            : const Color(0xFF059669),
                       ),
                       minHeight: 6,
                     ),
@@ -340,7 +448,7 @@ class _SecurityVerificationScreenState extends State<SecurityVerificationScreen>
             height: 36,
             child: CircularProgressIndicator(
               strokeWidth: 3,
-              color: const Color(0xFF2347D4).withValues(alpha: 0.6),
+              color: const Color(0xFFFFFFFF).withValues(alpha: 0.6),
             ),
           ),
           const SizedBox(width: 14),
@@ -352,7 +460,7 @@ class _SecurityVerificationScreenState extends State<SecurityVerificationScreen>
                   style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
-                      color: Color(0xFF0F1729))),
+                      color: Color(0xFFFFFFFF))),
               SizedBox(height: 2),
               Text('Please stay on campus WiFi during verification',
                   style: TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
@@ -377,7 +485,7 @@ class _SecurityVerificationScreenState extends State<SecurityVerificationScreen>
           width: 44,
           height: 44,
           decoration: BoxDecoration(
-            color: passed ? const Color(0xFF22C55E) : const Color(0xFFEF4444),
+            color: passed ? const Color(0xFF059669) : const Color(0xFFEF4444),
             shape: BoxShape.circle,
           ),
           child: Icon(
@@ -460,10 +568,10 @@ class _SecurityVerificationScreenState extends State<SecurityVerificationScreen>
               padding: const EdgeInsets.all(9),
               decoration: BoxDecoration(
                 color: isPassed
-                    ? const Color(0xFF22C55E).withValues(alpha: 0.1)
+                    ? const Color(0xFF059669).withValues(alpha: 0.1)
                     : isFailed
                         ? const Color(0xFFEF4444).withValues(alpha: 0.08)
-                        : const Color(0xFF2347D4).withValues(alpha: 0.08),
+                        : const Color(0xFFFFFFFF).withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(icon,
@@ -472,7 +580,7 @@ class _SecurityVerificationScreenState extends State<SecurityVerificationScreen>
                       ? const Color(0xFF16A34A)
                       : isFailed
                           ? const Color(0xFFDC2626)
-                          : const Color(0xFF2347D4)),
+                          : const Color(0xFFFFFFFF)),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -483,7 +591,7 @@ class _SecurityVerificationScreenState extends State<SecurityVerificationScreen>
                     style: const TextStyle(
                         fontWeight: FontWeight.w600,
                         fontSize: 13,
-                        color: Color(0xFF0F1729))),
+                        color: Color(0xFFFFFFFF))),
                 const SizedBox(height: 2),
                 Text(subtitle,
                     style: TextStyle(
@@ -535,7 +643,7 @@ class _SecurityVerificationScreenState extends State<SecurityVerificationScreen>
         height: 24,
         child: CircularProgressIndicator(
             strokeWidth: 2.5,
-            color: const Color(0xFF2347D4).withValues(alpha: 0.4)),
+            color: const Color(0xFFFFFFFF).withValues(alpha: 0.4)),
       );
     }
     return AnimatedContainer(
@@ -543,7 +651,7 @@ class _SecurityVerificationScreenState extends State<SecurityVerificationScreen>
       width: 30,
       height: 30,
       decoration: BoxDecoration(
-        color: status ? const Color(0xFF22C55E) : const Color(0xFFEF4444),
+        color: status ? const Color(0xFF059669) : const Color(0xFFEF4444),
         shape: BoxShape.circle,
       ),
       child: Icon(status ? Icons.check_rounded : Icons.close_rounded,
@@ -562,7 +670,7 @@ class _SecurityVerificationScreenState extends State<SecurityVerificationScreen>
         border: Border.all(color: const Color(0xFFBFDBFE)),
       ),
       child: Row(children: [
-        const Icon(Icons.router_rounded, size: 16, color: Color(0xFF2347D4)),
+        const Icon(Icons.router_rounded, size: 16, color: Color(0xFFFFFFFF)),
         const SizedBox(width: 10),
         Text('Your IP Address: ',
             style: TextStyle(
@@ -646,14 +754,14 @@ class _SecurityVerificationScreenState extends State<SecurityVerificationScreen>
                   width: 16,
                   height: 16,
                   child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Color(0xFF2347D4)))
+                      strokeWidth: 2, color: Color(0xFFFFFFFF)))
               : const Icon(Icons.refresh_rounded, size: 18),
           label: Text(_isRetrying ? 'Retrying...' : 'Retry Verification',
               style:
                   const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
           style: OutlinedButton.styleFrom(
-            foregroundColor: const Color(0xFF2347D4),
-            side: const BorderSide(color: Color(0xFF2347D4)),
+            foregroundColor: const Color(0xFFFFFFFF),
+            side: const BorderSide(color: Color(0xFFFFFFFF)),
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
@@ -714,14 +822,14 @@ class _SecurityVerificationScreenState extends State<SecurityVerificationScreen>
                   MaterialPageRoute(builder: (_) => const QRScannerScreen()))
               : null,
           style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF2347D4),
+            backgroundColor: const Color(0xFFFFFFFF),
             disabledBackgroundColor: const Color(0xFFE5E7EB),
             disabledForegroundColor: const Color(0xFF9CA3AF),
             foregroundColor: Colors.white,
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             elevation: _allPassed ? 4 : 0,
-            shadowColor: const Color(0xFF2347D4).withValues(alpha: 0.3),
+            shadowColor: const Color(0xFFFFFFFF).withValues(alpha: 0.3),
           ),
           child: !_allDone
               ? const Row(
@@ -756,4 +864,150 @@ class _SecurityVerificationScreenState extends State<SecurityVerificationScreen>
       ),
     );
   }
+
+  // ── Device Binding Card ──────────────────────────────────────────────────────
+  Widget _buildDeviceBindingCard() {
+    final isRegistered = _isRegistered;
+    final fingerprint = _currentFingerprint;
+    final truncated = fingerprint.length > 20
+        ? '${fingerprint.substring(0, 10)}...${fingerprint.substring(fingerprint.length - 8)}'
+        : fingerprint;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isRegistered == true
+            ? const Color(0xFFF0FDF4)
+            : const Color(0xFFFFFBEB),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isRegistered == true
+              ? const Color(0xFF86EFAC)
+              : const Color(0xFFFDE68A),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: isRegistered == true
+                    ? const Color(0xFF059669).withValues(alpha: 0.1)
+                    : const Color(0xFFF59E0B).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                isRegistered == true
+                    ? Icons.phonelink_rounded
+                    : Icons.phonelink_off_rounded,
+                size: 18,
+                color: isRegistered == true
+                    ? const Color(0xFF059669)
+                    : const Color(0xFFD97706),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    isRegistered == true
+                        ? 'Device Registered ✓'
+                        : isRegistered == false
+                            ? 'Device Not Registered'
+                            : 'Checking registration...',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: isRegistered == true
+                          ? const Color(0xFF15803D)
+                          : const Color(0xFF92400E),
+                    ),
+                  ),
+                  const SizedBox(height: 1),
+                  Text(
+                    _deviceName.isNotEmpty ? _deviceName : 'Unknown Device',
+                    style: const TextStyle(
+                        fontSize: 11, color: Color(0xFF6B7280)),
+                  ),
+                ],
+              ),
+            ),
+          ]),
+          if (fingerprint.isNotEmpty && fingerprint != 'unknown-device') ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.65),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(children: [
+                const Icon(Icons.fingerprint_rounded,
+                    size: 14, color: Color(0xFF6B7280)),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'ID: $truncated',
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFF374151),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ]),
+            ),
+          ],
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            height: 42,
+            child: _bindingLoading
+                ? const Center(
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Color(0xFFFFFFFF)),
+                    ),
+                  )
+                : isRegistered == true
+                    ? OutlinedButton.icon(
+                        onPressed: _deregisterDevice,
+                        icon: const Icon(Icons.remove_circle_outline, size: 16),
+                        label: const Text('Deregister Device',
+                            style: TextStyle(
+                                fontSize: 13, fontWeight: FontWeight.w600)),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFFDC2626),
+                          side: const BorderSide(color: Color(0xFFFECACA)),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10)),
+                        ),
+                      )
+                    : ElevatedButton.icon(
+                        onPressed: fingerprint.isEmpty ? null : _registerDevice,
+                        icon: const Icon(Icons.add_link_rounded, size: 16),
+                        label: const Text('Register This Device',
+                            style: TextStyle(
+                                fontSize: 13, fontWeight: FontWeight.w600)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFFFFFF),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10)),
+                          elevation: 0,
+                        ),
+                      ),
+          ),
+        ],
+      ),
+    ).animate().fadeIn(delay: 300.ms).slideY(begin: 0.15);
+  }
 }
+

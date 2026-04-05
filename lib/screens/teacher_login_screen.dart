@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'teacher_dashboard_screen.dart';
+import '../services/auth_service.dart';
+import '../services/app_state_service.dart';
+import '../services/network_service.dart';
 
 class TeacherLoginScreen extends StatefulWidget {
   const TeacherLoginScreen({super.key});
@@ -26,22 +29,42 @@ class _TeacherLoginScreenState extends State<TeacherLoginScreen> {
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
-    await Future.delayed(const Duration(seconds: 2));
+
+    final deviceID = await NetworkService.getDeviceFingerprint();
+    final result = await AuthService.signIn(
+      rollNumber: _emailController.text.trim(),
+      password: _passwordController.text.trim(),
+    );
+
     setState(() => _isLoading = false);
-    if (mounted) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => const TeacherDashboardScreen(),
-        ),
-      );
+
+    if (result == AuthResult.success) {
+      if (mounted) {
+        // AppState Tracking
+        AppStateService().setCurrentUser(_emailController.text.trim(), 'teacher');
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const TeacherDashboardScreen(),
+          ),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result.message, style: const TextStyle(color: Colors.white)),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFF),
+      backgroundColor: Colors.white,
       body: Column(
         children: [
           _buildHeader(),
@@ -136,14 +159,14 @@ class _TeacherLoginScreenState extends State<TeacherLoginScreen> {
                           ),
                           const SizedBox(height: 12),
 
-                          Align(
+                          const Align(
                             alignment: Alignment.centerRight,
                             child: Text(
                               'Forgot Password?',
                               style: TextStyle(
-                                color: const Color(0xFF2347D4),
+                                color: Color(0xFF0056B3),
                                 fontSize: 13,
-                                fontWeight: FontWeight.w500,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
                           ),
@@ -160,12 +183,12 @@ class _TeacherLoginScreenState extends State<TeacherLoginScreen> {
                       child: ElevatedButton(
                         onPressed: _isLoading ? null : _login,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF2347D4),
+                          backgroundColor: const Color(0xFF0056B3),
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16),
                           ),
-                          elevation: 0,
+                          elevation: 4,
                         ),
                         child: _isLoading
                             ? const SizedBox(
@@ -198,16 +221,16 @@ class _TeacherLoginScreenState extends State<TeacherLoginScreen> {
                     // Back to student
                     GestureDetector(
                       onTap: () => Navigator.pop(context),
-                      child: Row(
+                      child: const Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(Icons.arrow_back_ios_rounded,
+                          Icon(Icons.arrow_back_ios_rounded,
                               size: 14, color: Color(0xFF6B7280)),
-                          const SizedBox(width: 4),
+                          SizedBox(width: 4),
                           Text(
                             'Back to Student Login',
                             style: TextStyle(
-                              color: const Color(0xFF6B7280),
+                              color: Color(0xFF6B7280),
                               fontSize: 14,
                               fontWeight: FontWeight.w500,
                             ),
@@ -227,7 +250,7 @@ class _TeacherLoginScreenState extends State<TeacherLoginScreen> {
 
   Widget _buildHeader() {
     return Container(
-      color: const Color(0xFF2347D4),
+      color: const Color(0xFF0056B3),
       child: SafeArea(
         bottom: false,
         child: Padding(
@@ -237,35 +260,36 @@ class _TeacherLoginScreenState extends State<TeacherLoginScreen> {
             children: [
               GestureDetector(
                 onTap: () => Navigator.pop(context),
-                child: Row(
+                child: const Row(
                   children: [
-                    const Icon(Icons.arrow_back_ios_rounded,
-                        color: Colors.white60, size: 16),
-                    const SizedBox(width: 4),
+                    Icon(Icons.arrow_back_ios_rounded,
+                        color: Colors.white, size: 16),
+                    SizedBox(width: 4),
                     Text(
                       'Back',
                       style: TextStyle(
-                        color: Colors.white.withOpacity(0.6),
+                        color: Colors.white,
                         fontSize: 13,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
               Row(
                 children: [
                   Container(
-                    width: 48,
-                    height: 48,
+                    width: 56,
+                    height: 56,
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(16),
                     ),
                     child: const Icon(
                       Icons.school_rounded,
                       color: Colors.white,
-                      size: 26,
+                      size: 32,
                     ),
                   ),
                   const SizedBox(width: 14),
@@ -276,15 +300,17 @@ class _TeacherLoginScreenState extends State<TeacherLoginScreen> {
                         'Teacher Login',
                         style: TextStyle(
                           color: Colors.white,
-                          fontSize: 22,
-                          fontWeight: FontWeight.w700,
+                          fontSize: 28,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -1.0,
                         ),
                       ),
                       Text(
-                        'SecureAttend — Faculty Portal',
+                        'Faculty Enterprise Portal',
                         style: TextStyle(
-                          color: Colors.white60,
-                          fontSize: 13,
+                          color: Colors.white70,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
                     ],
@@ -323,7 +349,7 @@ class _TeacherLoginScreenState extends State<TeacherLoginScreen> {
           controller: controller,
           obscureText: obscureText,
           validator: validator,
-          style: const TextStyle(fontSize: 14, color: Color(0xFF111827)),
+          style: const TextStyle(fontSize: 14, color: Color(0xFF000000), fontWeight: FontWeight.w600),
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: const TextStyle(color: Color(0xFFD1D5DB), fontSize: 13),
@@ -337,7 +363,7 @@ class _TeacherLoginScreenState extends State<TeacherLoginScreen> {
             suffixIconConstraints:
                 const BoxConstraints(minWidth: 0, minHeight: 0),
             filled: true,
-            fillColor: const Color(0xFFF9FAFB),
+            fillColor: Colors.white,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
               borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
@@ -348,7 +374,7 @@ class _TeacherLoginScreenState extends State<TeacherLoginScreen> {
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: Color(0xFF2347D4), width: 2),
+              borderSide: const BorderSide(color: Color(0xFF0056B3), width: 2),
             ),
             contentPadding:
                 const EdgeInsets.symmetric(horizontal: 14, vertical: 12),

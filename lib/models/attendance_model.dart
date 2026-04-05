@@ -67,6 +67,36 @@ class SubjectAttendance {
     return needed;
   }
 
+  int howManyCanMiss(double target) {
+    if (percentage < target) return 0;
+    int canMiss = 0;
+    int attended = attendedClasses;
+    int total = totalClasses;
+    while (total > 0 && ((attended / (total + 1)) * 100 >= target)) {
+      total++;
+      canMiss++;
+    }
+    return canMiss;
+  }
+
   // Keep old method name for compatibility
   int classesNeededFor75() => classesNeededFor(75);
+
+  SubjectAttendance copyWith({
+    String? subjectCode,
+    String? subjectName,
+    int? totalClasses,
+    int? attendedClasses,
+    int? lateClasses,
+    List<AttendanceRecord>? recentRecords,
+  }) {
+    return SubjectAttendance(
+      subjectCode: subjectCode ?? this.subjectCode,
+      subjectName: subjectName ?? this.subjectName,
+      totalClasses: totalClasses ?? this.totalClasses,
+      attendedClasses: attendedClasses ?? this.attendedClasses,
+      lateClasses: lateClasses ?? this.lateClasses,
+      recentRecords: recentRecords ?? this.recentRecords,
+    );
+  }
 }

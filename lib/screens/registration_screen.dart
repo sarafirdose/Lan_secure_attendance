@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../services/auth_service.dart';
+import '../services/app_state_service.dart';
 import 'dashboard_screen.dart';
 
 class RegistrationScreen extends StatefulWidget {
@@ -115,7 +116,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         break;
       default:
         label = 'Strong';
-        color = const Color(0xFF22C55E);
+        color = const Color(0xFF059669);
     }
     setState(() {
       _passwordStrength = strength;
@@ -150,26 +151,39 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       return;
     }
     setState(() => _isLoading = true);
-    final result = await AuthService.register(
-      rollNumber: _rollController.text.trim().toUpperCase(),
-      fullName: _nameController.text.trim(),
-      department: _selectedDept!,
-      yearSection: '$_selectedSem - Section $_selectedSection',
-      email: _emailController.text.trim(),
-      password: _passwordController.text,
-    );
-    if (!mounted) return;
-    setState(() => _isLoading = false);
-    if (result.isSuccess) {
-      _showSnack('Account created successfully!', isError: false);
-      await Future.delayed(const Duration(milliseconds: 600));
+    try {
+      final rollNumber = _rollController.text.trim().toUpperCase();
+      // Registration using unified AuthService
+      final result = await AuthService.register(
+        rollNumber: rollNumber,
+        fullName: _nameController.text.trim(),
+        department: _selectedDept!,
+        role: 'student',
+        password: _passwordController.text,
+      );
+      
       if (!mounted) return;
-      Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (_) => const DashboardScreen()),
-          (_) => false);
-    } else {
-      _showSnack(result.message, isError: true);
+      setState(() => _isLoading = false);
+      
+      if (result == AuthResult.success) {
+        _showSnack('Account created successfully!', isError: false);
+        
+        // Ensure AppState is updated
+        AppStateService().setCurrentUser(rollNumber, 'student');
+        
+        await Future.delayed(const Duration(milliseconds: 600));
+        if (!mounted) return;
+        Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (_) => const DashboardScreen()),
+            (_) => false);
+      } else {
+        _showSnack(result.message, isError: true);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      _showSnack('Registration failed: $e', isError: true);
     }
   }
 
@@ -182,7 +196,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         Expanded(child: Text(msg, style: const TextStyle(fontSize: 13))),
       ]),
       backgroundColor:
-          isError ? const Color(0xFFEF4444) : const Color(0xFF22C55E),
+          isError ? const Color(0xFFEF4444) : const Color(0xFF059669),
       behavior: SnackBarBehavior.floating,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
     ));
@@ -191,7 +205,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFF),
+      backgroundColor: Colors.white,
       body: Column(
         children: [
           _buildHeader(),
@@ -261,10 +275,12 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                         isValid: _nameValid,
                         textCapitalization: TextCapitalization.words,
                         validator: (v) {
-                          if (v == null || v.trim().isEmpty)
+                          if (v == null || v.trim().isEmpty) {
                             return 'Enter your full name';
-                          if (!v.trim().contains(' '))
+                          }
+                          if (!v.trim().contains(' ')) {
                             return 'Enter first and last name';
+                          }
                           return null;
                         },
                         helperText: 'As it appears on your college ID card'),
@@ -277,11 +293,14 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                         isValid: _emailValid,
                         keyboardType: TextInputType.emailAddress,
                         validator: (v) {
-                          if (v == null || v.trim().isEmpty)
+                          if (v == null || v.trim().isEmpty) {
                             return 'Enter your college email';
+                          }
                           if (!RegExp(
                                   r'^[a-zA-Z0-9][a-zA-Z0-9._%+-]*@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
-                              .hasMatch(v.trim())) return 'Enter a valid email';
+                              .hasMatch(v.trim())) {
+                            return 'Enter a valid email';
+                          }
                           return null;
                         },
                         helperText: 'Used for attendance notifications'),
@@ -325,40 +344,42 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
 
   Widget _buildHeader() {
     return Container(
-      color: const Color(0xFF2347D4),
+      color: const Color(0xFF0056B3),
       child: SafeArea(
         bottom: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             GestureDetector(
               onTap: () => Navigator.pop(context),
-              child: Row(children: [
-                const Icon(Icons.arrow_back_ios_rounded,
-                    color: Colors.white60, size: 16),
-                const SizedBox(width: 4),
+              child: const Row(children: [
+                Icon(Icons.arrow_back_ios_rounded,
+                    color: Colors.white, size: 16),
+                SizedBox(width: 4),
                 Text('Back',
                     style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.6),
-                        fontSize: 13)),
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600)),
               ]),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 20),
             const Text('Create Account',
                     style: TextStyle(
                         color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: -0.5))
+                        fontSize: 32,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -1.0))
                 .animate()
                 .fadeIn(duration: 400.ms)
                 .slideX(begin: -0.2),
             const SizedBox(height: 4),
-            Text('Register with your college credentials',
+            const Text('Register with your college credentials',
                     style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.65),
-                        fontSize: 13))
+                        color: Colors.white70,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500))
                 .animate(delay: 100.ms)
                 .fadeIn(),
           ]),
@@ -375,8 +396,8 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         Text('$_filledFields / 8 fields',
             style: const TextStyle(
                 fontSize: 12,
-                color: Color(0xFF2347D4),
-                fontWeight: FontWeight.w600)),
+                color: Color(0xFF0056B3),
+                fontWeight: FontWeight.w800)),
       ]),
       const SizedBox(height: 6),
       ClipRRect(
@@ -385,8 +406,8 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
           value: _formProgress,
           backgroundColor: const Color(0xFFE5E7EB),
           valueColor: AlwaysStoppedAnimation<Color>(_formProgress == 1.0
-              ? const Color(0xFF22C55E)
-              : const Color(0xFF2347D4)),
+              ? const Color(0xFF059669)
+              : const Color(0xFF0056B3)),
           minHeight: 6,
         ),
       ),
@@ -399,7 +420,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
           width: 3,
           height: 16,
           decoration: BoxDecoration(
-              color: const Color(0xFF2347D4),
+              color: const Color(0xFF0056B3),
               borderRadius: BorderRadius.circular(2))),
       const SizedBox(width: 8),
       Text(label,
@@ -430,8 +451,9 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
           validator: (v) {
             if (v == null || v.isEmpty) return 'Enter a password';
             if (v.length < 8) return 'Minimum 8 characters required';
-            if (!v.contains(RegExp(r'[A-Z]')))
+            if (!v.contains(RegExp(r'[A-Z]'))) {
               return 'Add at least one uppercase letter';
+            }
             if (!v.contains(RegExp(r'[0-9]'))) return 'Add at least one number';
             return null;
           }),
@@ -471,13 +493,13 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         child: Row(children: [
           Icon(met ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
               size: 13,
-              color: met ? const Color(0xFF22C55E) : const Color(0xFFD1D5DB)),
+              color: met ? const Color(0xFF059669) : const Color(0xFFD1D5DB)),
           const SizedBox(width: 5),
           Text(text,
               style: TextStyle(
                   fontSize: 11,
                   color:
-                      met ? const Color(0xFF22C55E) : const Color(0xFF9CA3AF))),
+                      met ? const Color(0xFF059669) : const Color(0xFF9CA3AF))),
         ]),
       );
 
@@ -497,7 +519,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         onPressed: _isLoading ? null : _register,
         style: ElevatedButton.styleFrom(
             backgroundColor:
-                allValid ? const Color(0xFF2347D4) : const Color(0xFF9CA3AF),
+                allValid ? const Color(0xFF0056B3) : const Color(0xFFE0E0E0),
             foregroundColor: Colors.white,
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -529,8 +551,8 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
               onTap: () => Navigator.pop(context),
               child: const Text('Sign In',
                   style: TextStyle(
-                      color: Color(0xFF2347D4),
-                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF0056B3),
+                      fontWeight: FontWeight.w900,
                       fontSize: 14))),
         ],
       );
@@ -571,7 +593,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         keyboardType: keyboardType,
         textCapitalization: textCapitalization,
         inputFormatters: inputFormatters,
-        style: const TextStyle(fontSize: 14, color: Color(0xFF111827)),
+        style: const TextStyle(fontSize: 14, color: Color(0xFF000000), fontWeight: FontWeight.w600),
         decoration: InputDecoration(
           hintText: hint,
           hintStyle: const TextStyle(color: Color(0xFFD1D5DB), fontSize: 13),
@@ -581,7 +603,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                   size: 18,
                   color: hasText
                       ? (isValid
-                          ? const Color(0xFF22C55E)
+                          ? const Color(0xFF059669)
                           : const Color(0xFFEF4444))
                       : const Color(0xFF9CA3AF))),
           prefixIconConstraints:
@@ -598,13 +620,13 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                               : Icons.cancel_rounded,
                           size: 18,
                           color: isValid
-                              ? const Color(0xFF22C55E)
+                              ? const Color(0xFF059669)
                               : const Color(0xFFEF4444)))
                   : null),
           suffixIconConstraints:
               const BoxConstraints(minWidth: 0, minHeight: 0),
           filled: true,
-          fillColor: const Color(0xFFF9FAFB),
+          fillColor: Colors.white,
           border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
               borderSide: const BorderSide(color: Color(0xFFE5E7EB))),
@@ -613,15 +635,15 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
               borderSide: BorderSide(
                   color: hasText
                       ? (isValid
-                          ? const Color(0xFF22C55E).withValues(alpha: 0.5)
+                          ? const Color(0xFF059669).withValues(alpha: 0.5)
                           : const Color(0xFFEF4444).withValues(alpha: 0.5))
                       : const Color(0xFFE5E7EB))),
           focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
               borderSide: BorderSide(
                   color: isValid
-                      ? const Color(0xFF22C55E)
-                      : const Color(0xFF2347D4),
+                      ? const Color(0xFF059669)
+                      : const Color(0xFF0056B3),
                   width: 2)),
           errorBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
@@ -660,7 +682,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       ]),
       const SizedBox(height: 6),
       DropdownButtonFormField<String>(
-        value: value,
+        initialValue: value,
         hint: Text(hint,
             style: const TextStyle(color: Color(0xFFD1D5DB), fontSize: 13)),
         icon: const Icon(Icons.keyboard_arrow_down_rounded,
@@ -668,7 +690,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         isExpanded: true,
         decoration: InputDecoration(
           filled: true,
-          fillColor: const Color(0xFFF9FAFB),
+          fillColor: Colors.white,
           border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
               borderSide: const BorderSide(color: Color(0xFFE5E7EB))),
@@ -677,7 +699,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
               borderSide: const BorderSide(color: Color(0xFFE5E7EB))),
           focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: Color(0xFF2347D4), width: 2)),
+              borderSide: const BorderSide(color: Color(0xFF0056B3), width: 2)),
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
         ),

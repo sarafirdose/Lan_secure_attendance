@@ -47,7 +47,7 @@ class _TeacherSelectClassScreenState extends State<TeacherSelectClassScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFF),
+      backgroundColor: const Color(0xFFF5F5F5),
       body: Column(
         children: [
           _buildHeader(),
@@ -69,7 +69,7 @@ class _TeacherSelectClassScreenState extends State<TeacherSelectClassScreen> {
                     child: const Row(
                       children: [
                         Icon(Icons.info_outline_rounded,
-                            size: 16, color: Color(0xFF2347D4)),
+                            size: 16, color: Color(0xFFFFFFFF)),
                         SizedBox(width: 10),
                         Expanded(
                           child: Text(
@@ -164,7 +164,7 @@ class _TeacherSelectClassScreenState extends State<TeacherSelectClassScreen> {
                           const Row(
                             children: [
                               Icon(Icons.check_circle_rounded,
-                                  color: Color(0xFF22C55E), size: 16),
+                                  color: Color(0xFF059669), size: 16),
                               SizedBox(width: 8),
                               Text(
                                 'Session Ready',
@@ -201,7 +201,7 @@ class _TeacherSelectClassScreenState extends State<TeacherSelectClassScreen> {
 
   Widget _buildHeader() {
     return Container(
-      color: const Color(0xFF2347D4),
+      color: const Color(0xFFFFFFFF),
       child: SafeArea(
         bottom: false,
         child: Padding(
@@ -266,7 +266,7 @@ class _TeacherSelectClassScreenState extends State<TeacherSelectClassScreen> {
           decoration: InputDecoration(
             prefixIcon: Icon(icon, size: 18, color: const Color(0xFF9CA3AF)),
             filled: true,
-            fillColor: const Color(0xFFF9FAFB),
+            fillColor: const Color(0xFFF5F5F5),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
               borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
@@ -277,7 +277,7 @@ class _TeacherSelectClassScreenState extends State<TeacherSelectClassScreen> {
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: Color(0xFF2347D4), width: 2),
+              borderSide: const BorderSide(color: Color(0xFFFFFFFF), width: 2),
             ),
             contentPadding:
                 const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -318,7 +318,7 @@ class _TeacherSelectClassScreenState extends State<TeacherSelectClassScreen> {
                   )
               : null,
           style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF2347D4),
+            backgroundColor: const Color(0xFFFFFFFF),
             disabledBackgroundColor: const Color(0xFF9CA3AF),
             foregroundColor: Colors.white,
             shape:

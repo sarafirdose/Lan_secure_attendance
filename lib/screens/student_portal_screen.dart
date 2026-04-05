@@ -1,7 +1,17 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import '../models/attendance_model.dart';
 import '../services/attendance_data_service.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import '../services/student_service.dart';
+import '../services/ai_action_engine.dart';
+import '../widgets/system_status_badge.dart';
+import '../services/app_state_service.dart';
+import '../services/automated_notification_service.dart';
+import '../services/demo_state_service.dart';
+import '../services/network_service.dart';
 
 class StudentPortalScreen extends StatefulWidget {
   const StudentPortalScreen({super.key});
@@ -11,83 +21,167 @@ class StudentPortalScreen extends StatefulWidget {
 }
 
 class _StudentPortalScreenState extends State<StudentPortalScreen> {
-  final List<SubjectAttendance> _subjects =
-      AttendanceDataService.getMockAttendance();
+  final List<SubjectAttendance> _subjects = AttendanceDataService.getMockAttendance();
   String _filter = 'all';
   final Set<int> _expandedIndexes = {};
+  Map<String, dynamic>? _backendAIResult;
+  bool _isAILoading = true;
+  String _userName = 'Student';
+  String _initials = 'S';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUser();
+    _fetchBackendAI();
+    AutomatedNotificationService.checkAndNotifyRisk();
+    DemoStateService().addListener(_onDemoUpdate);
+  }
+
+  @override
+  void dispose() {
+    DemoStateService().removeListener(_onDemoUpdate);
+    super.dispose();
+  }
+
+  void _onDemoUpdate() {
+    if (mounted) {
+      _loadData();
+    }
+  }
+
+  void _loadData() {
+     setState(() {
+       // Refresh UI and data
+     });
+  }
+
+  void _loadUser() {
+    final user = AppStateService().currentUser;
+    if (user != null) {
+      final String full = user['fullName'] ?? 'Student';
+      setState(() {
+        _userName = full;
+        _initials = full.isNotEmpty ? full[0].toUpperCase() : 'S';
+      });
+    }
+  }
+
+  Future<void> _fetchBackendAI() async {
+    final user = AppStateService().currentUser;
+    if (user != null) {
+      try {
+        final res = await StudentService.getPredictiveAnalysis(user['uid'])
+            .timeout(const Duration(seconds: 5));
+        if (mounted) {
+          setState(() {
+            _backendAIResult = res;
+            _isAILoading = false;
+          });
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _backendAIResult = {'risk': 'Safe', 'insight': 'Operating in offline mode.'};
+            _isAILoading = false;
+          });
+        }
+      }
+    } else {
+      setState(() {
+        _isAILoading = false;
+      });
+    }
+  }
 
   // ── Totals ──────────────────────────────────────────────────────────────────
-  int get _totalPresent =>
-      _subjects.fold<int>(0, (s, e) => s + e.attendedClasses);
+  int get _totalPresent => _subjects.fold<int>(0, (s, e) => s + e.attendedClasses);
   int get _totalAbsent => _subjects.fold<int>(0, (s, e) => s + e.absentClasses);
-  int get _totalLate => _subjects.fold<int>(0, (s, e) => s + e.lateCount);
   int get _totalClasses => _subjects.fold<int>(0, (s, e) => s + e.totalClasses);
   double get _overallPct =>
       _totalClasses == 0 ? 0 : (_totalPresent / _totalClasses) * 100;
 
   List<SubjectAttendance> get _filtered {
     if (_filter == 'danger') {
-      return _subjects
-          .where((s) => s.health == AttendanceHealth.danger)
-          .toList();
+      return _subjects.where((s) => s.percentage < 75).toList();
     }
     if (_filter == 'safe') {
-      return _subjects
-          .where((s) => s.health != AttendanceHealth.danger)
-          .toList();
+      return _subjects.where((s) => s.percentage >= 75).toList();
     }
     return _subjects;
   }
 
   List<SubjectAttendance> get _dangerSubjects =>
-      _subjects.where((s) => s.health == AttendanceHealth.danger).toList();
-
-  // Exam eligibility — needs 75% overall
-  bool get _isEligible => _overallPct >= 75;
-
-  // Monthly data for bar chart
-  // Each entry: {month, present, absent}
-  final List<Map<String, dynamic>> _monthlyData = const [
-    {'month': 'Jan', 'present': 18, 'absent': 4},
-    {'month': 'Feb', 'present': 20, 'absent': 2},
-    {'month': 'Mar', 'present': 19, 'absent': 3},
-    {'month': 'Apr', 'present': 22, 'absent': 1},
-    {'month': 'May', 'present': 17, 'absent': 5},
-    {'month': 'Jun', 'present': 16, 'absent': 5},
-  ];
+      _subjects.where((s) => s.percentage < 75).toList();
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF3F4F8),
+      backgroundColor: Colors.white,
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _showDemoScanner,
+        backgroundColor: const Color(0xFF1F2937),
+        icon: const Icon(Icons.qr_code_scanner_rounded, color: Colors.white),
+        label: const Text('SCAN ATTENDANCE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
+      ).animate().scale(delay: 500.ms, duration: 600.ms, curve: Curves.elasticOut).shimmer(delay: 2000.ms, duration: 1500.ms),
       body: Column(
         children: [
           _buildHeader(),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
               children: [
-                _buildOverallCard(),
-                const SizedBox(height: 10),
-                _buildCondonationCard(),
+                _buildAIEngineCard(),
+                const SizedBox(height: 20),
+                _buildOverallProgressRow(),
                 if (_dangerSubjects.isNotEmpty) ...[
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 20),
                   _buildWarningBanner(),
                 ],
+                const SizedBox(height: 24),
+                const Text('Subject Attendance',
+                    style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF0F172A))),
                 const SizedBox(height: 12),
                 _buildFilterRow(),
-                const SizedBox(height: 4),
-                ..._filtered.asMap().entries.map((e) {
-                  final i = _subjects.indexOf(e.value);
-                  return _buildSubjectCard(e.value, i);
-                }),
-                const SizedBox(height: 12),
-                _buildMonthlyChart(),
                 const SizedBox(height: 16),
+                ..._filtered.asMap().entries.map((e) {
+                  return _buildSubjectCard(e.value, e.key);
+                }),
+                if (_subjects.isEmpty) _buildEmptyState(),
+                const SizedBox(height: 80), // More space for FAB
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0056B3).withOpacity(0.05),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.menu_book_rounded, size: 48, color: Color(0xFF0056B3)),
+            ),
+            const SizedBox(height: 16),
+            const Text('No attendance records yet.',
+                style: TextStyle(
+                    color: Color(0xFF1F2937),
+                    fontWeight: FontWeight.w600)),
+          ],
+        ),
       ),
     );
   }
@@ -95,304 +189,281 @@ class _StudentPortalScreenState extends State<StudentPortalScreen> {
   // ── Header ──────────────────────────────────────────────────────────────────
   Widget _buildHeader() {
     return Container(
-      color: const Color(0xFF2347D4),
-      padding: EdgeInsets.only(
-        top: MediaQuery.of(context).padding.top + 12,
-        left: 16,
-        right: 16,
-        bottom: 20,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: const Center(
-                  child: Text('SA',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500)),
-                ),
-              ),
-              const Expanded(
-                child: Center(
-                  child: Text('Student Portal',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w500)),
-                ),
-              ),
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: const Icon(Icons.notifications_outlined,
-                    color: Colors.white, size: 18),
-              ),
-            ],
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF0F172A), Color(0xFF1E293B)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: const BorderRadius.only(
+          bottomLeft: Radius.circular(32),
+          bottomRight: Radius.circular(32),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0056B3).withOpacity(0.25),
+            blurRadius: 20,
+            offset: const Offset(0, 12),
           ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                child: const Center(
-                  child: Text('AK',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500)),
-                ),
+        ],
+      ),
+      child: SafeArea(
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white.withOpacity(0.5), width: 2),
               ),
-              const SizedBox(width: 12),
-              const Column(
+              child: Container(
+                width: 52,
+                height: 52,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Text(_initials,
+                      style: const TextStyle(
+                          color: Color(0xFF0F172A),
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900)),
+                ),
+              ).animate().scale(duration: 400.ms, curve: Curves.easeOutBack),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Arjun Kumar',
+                  const Text('STUDENT PORTAL 🛡️',
                       style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.5)),
+                  const SizedBox(height: 2),
+                  Text(_userName,
+                      style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 17,
-                          fontWeight: FontWeight.w500)),
-                  SizedBox(height: 2),
-                  Text('CS2022045  |  CSE  |  3rd Year  |  Sec B',
-                      style: TextStyle(color: Colors.white70, fontSize: 11)),
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -0.5)),
                 ],
               ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Overall donut card ───────────────────────────────────────────────────────
-  Widget _buildOverallCard() {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
-      ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 72,
-            height: 72,
-            child: Stack(
-              children: [
-                CustomPaint(
-                  size: const Size(72, 72),
-                  painter: _DonutPainter(percentage: _overallPct),
-                ),
-                Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text('${_overallPct.toStringAsFixed(0)}%',
-                          style: const TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF0F1729))),
-                      const Text('overall',
-                          style:
-                              TextStyle(fontSize: 10, color: Colors.black45)),
-                    ],
-                  ),
-                ),
-              ],
             ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Semester attendance',
-                    style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                        color: Color(0xFF0F1729))),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    _statPill('$_totalPresent', 'Present',
-                        const Color(0xFF3B6D11), const Color(0xFFEAF3DE)),
-                    const SizedBox(width: 6),
-                    _statPill('$_totalLate', 'Late', const Color(0xFF854F0B),
-                        const Color(0xFFFAEEDA)),
-                    const SizedBox(width: 6),
-                    _statPill('$_totalAbsent', 'Absent',
-                        const Color(0xFFA32D2D), const Color(0xFFFCEBEB)),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _statPill(String value, String label, Color textColor, Color bg) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        decoration:
-            BoxDecoration(color: bg, borderRadius: BorderRadius.circular(8)),
-        child: Column(
-          children: [
-            Text(value,
-                style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: textColor)),
-            Text(label,
-                style: const TextStyle(fontSize: 10, color: Colors.black45)),
           ],
         ),
       ),
     );
   }
 
-  // ── Condonation / exam eligibility card ─────────────────────────────────────
-  Widget _buildCondonationCard() {
-    final eligible = _isEligible;
-    final Color cardBg =
-        eligible ? const Color(0xFFEAF3DE) : const Color(0xFFFCEBEB);
-    final Color iconColor =
-        eligible ? const Color(0xFF3B6D11) : const Color(0xFFA32D2D);
-    final Color textColor =
-        eligible ? const Color(0xFF27500A) : const Color(0xFF791F1F);
-    final IconData icon =
-        eligible ? Icons.verified_rounded : Icons.warning_rounded;
-    final String title =
-        eligible ? 'Eligible for exams' : 'Not eligible for exams';
-    final String subtitle = eligible
-        ? 'Your overall attendance meets the 75% requirement'
-        : 'You need ${(75 - _overallPct).toStringAsFixed(1)}% more attendance to become eligible';
+  Widget _buildAIEngineCard() {
+    if (_isAILoading) {
+      return Container(
+        height: 60,
+        alignment: Alignment.center,
+        child: const CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0056B3)),
+      );
+    }
 
+    final risk = _backendAIResult?['risk'] ?? 'Safe';
+    final isCritical = risk == 'Critical';
+    
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      margin: const EdgeInsets.only(bottom: 24),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: cardBg,
-        borderRadius: BorderRadius.circular(12),
+        color: isCritical ? const Color(0xFFFFF1F2) : const Color(0xFFF0FDF4),
+        borderRadius: BorderRadius.circular(24),
         border: Border.all(
-            color:
-                eligible ? const Color(0xFF97C459) : const Color(0xFFF09595)),
+            color: isCritical ? const Color(0xFFFECDD3) : const Color(0xFFBBF7D0),
+            width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: (isCritical ? Colors.red : Colors.green).withOpacity(0.05),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 40,
-            height: 40,
+            padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.6),
-              borderRadius: BorderRadius.circular(10),
+              color: (isCritical ? const Color(0xFFEF4444) : const Color(0xFF10B981))
+                  .withOpacity(0.12),
+              borderRadius: BorderRadius.circular(16),
             ),
-            child: Icon(icon, color: iconColor, size: 22),
+            child: Icon(Icons.psychology_rounded,
+                color: isCritical ? const Color(0xFFDC2626) : const Color(0xFF059669),
+                size: 26),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title,
+                Text('SECURE PREDICTION 🤖',
                     style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: textColor)),
-                const SizedBox(height: 2),
-                Text(subtitle,
-                    style:
-                        TextStyle(fontSize: 11, color: textColor, height: 1.4)),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 1.2,
+                        color: isCritical
+                            ? const Color(0xFF9F1239)
+                            : const Color(0xFF15803D))),
+                const SizedBox(height: 6),
+                Text(
+                  isCritical 
+                    ? 'ACTION REQUIRED: Your eligibility is at risk. Attend the next 3 sessions!'
+                    : 'Looking Good! You are meeting all institutional requirements. Keep it up!',
+                  style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      height: 1.5,
+                      color: isCritical
+                          ? const Color(0xFF881337)
+                          : const Color(0xFF166534)),
+                ),
               ],
             ),
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.7),
-              borderRadius: BorderRadius.circular(20),
+        ],
+      ),
+    ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.05);
+  }
+
+  Widget _buildOverallProgressRow() {
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFE5E7EB), width: 1.2),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withOpacity(0.03),
+              blurRadius: 20,
+              offset: const Offset(0, 10))
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Overall Progress',
+                  style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF1F2937))),
+              Text('${_overallPct.toStringAsFixed(1)}%',
+                  style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF0056B3))),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: LinearProgressIndicator(
+              value: _overallPct / 100,
+              minHeight: 14,
+              backgroundColor: const Color(0xFFF1F5F9),
+              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF0056B3)),
             ),
-            child: Text('${_overallPct.toStringAsFixed(0)}%',
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: iconColor)),
+          ),
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              _statItem('Attended', '$_totalPresent', const Color(0xFF059669)),
+              const SizedBox(width: 12),
+              _statItem('Missed', '$_totalAbsent', const Color(0xFFDC2626)),
+            ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _statItem(String label, String value, Color color) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withOpacity(0.12)),
+        ),
+        child: Column(
+          children: [
+            Text(label,
+                style: TextStyle(
+                    fontSize: 11, color: color, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 4),
+            Text(value,
+                style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                    color: color)),
+          ],
+        ),
       ),
     );
   }
 
   // ── Warning banner ───────────────────────────────────────────────────────────
   Widget _buildWarningBanner() {
-    final names = _dangerSubjects.map((s) => s.name).join(' & ');
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFAEEDA),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFFAC775)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 18,
-            height: 18,
-            margin: const EdgeInsets.only(top: 1),
-            decoration: const BoxDecoration(
-                color: Color(0xFFEF9F27), shape: BoxShape.circle),
-            child: const Center(
-              child: Text('!',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold)),
+    final count = _dangerSubjects.length;
+    return GestureDetector(
+      onTap: () {
+        setState(() => _filter = 'danger');
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFEF2F2),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFFECDD3)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.error_outline_rounded,
+                color: Color(0xFFDC2626), size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                '$count subject${count > 1 ? 's' : ''} below 75%. Tap to view.',
+                style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF9F1239)),
+              ),
             ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              '$names ${_dangerSubjects.length == 1 ? 'is' : 'are'} below 75% — tap to see missed classes',
-              style: const TextStyle(
-                  fontSize: 12, color: Color(0xFF633806), height: 1.4),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
   // ── Filter row ───────────────────────────────────────────────────────────────
   Widget _buildFilterRow() {
-    return Row(
-      children: [
-        _filterChip('All', 'all'),
-        const SizedBox(width: 6),
-        _filterChip('Below 75%', 'danger'),
-        const SizedBox(width: 6),
-        _filterChip('Above 75%', 'safe'),
-      ],
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          _filterChip('All', 'all'),
+          const SizedBox(width: 8),
+          _filterChip('Below 75%', 'danger'),
+          const SizedBox(width: 8),
+          _filterChip('Above 75%', 'safe'),
+        ],
+      ),
     );
   }
 
@@ -402,20 +473,21 @@ class _StudentPortalScreenState extends State<StudentPortalScreen> {
       onTap: () => setState(() => _filter = value),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         decoration: BoxDecoration(
-          color: active ? const Color(0xFF2347D4) : Colors.white,
-          borderRadius: BorderRadius.circular(20),
+          color: active ? const Color(0xFF0056B3) : const Color(0xFFF1F5F9),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
-              color: active
-                  ? const Color(0xFF2347D4)
-                  : Colors.black.withValues(alpha: 0.12)),
+              color: active ? const Color(0xFF003366) : const Color(0xFFE2E8F0)),
+          boxShadow: active ? [
+            BoxShadow(color: const Color(0xFF0056B3).withOpacity(0.2), blurRadius: 8, offset: const Offset(0, 4))
+          ] : null,
         ),
         child: Text(label,
             style: TextStyle(
                 fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: active ? Colors.white : Colors.black54)),
+                fontWeight: active ? FontWeight.w900 : FontWeight.w700,
+                color: active ? Colors.white : const Color(0xFF4B5563))),
       ),
     );
   }
@@ -423,121 +495,102 @@ class _StudentPortalScreenState extends State<StudentPortalScreen> {
   // ── Subject card ─────────────────────────────────────────────────────────────
   Widget _buildSubjectCard(SubjectAttendance subject, int index) {
     final expanded = _expandedIndexes.contains(index);
-    final health = subject.health;
+    final bool isDanger = subject.percentage < 75;
 
-    Color accentColor;
-    Color bgColor;
-    Color textColor;
-    switch (health) {
-      case AttendanceHealth.safe:
-        accentColor = const Color(0xFF639922);
-        bgColor = const Color(0xFFEAF3DE);
-        textColor = const Color(0xFF27500A);
-      case AttendanceHealth.warning:
-        accentColor = const Color(0xFFEF9F27);
-        bgColor = const Color(0xFFFAEEDA);
-        textColor = const Color(0xFF633806);
-      case AttendanceHealth.danger:
-        accentColor = const Color(0xFFE24B4A);
-        bgColor = const Color(0xFFFCEBEB);
-        textColor = const Color(0xFF791F1F);
-    }
+    final Color primaryColor = isDanger ? const Color(0xFFDC2626) : const Color(0xFF0056B3);
+    final Color bgColor = isDanger ? const Color(0xFFFFE4E6) : const Color(0xFFEFF6FF);
 
-    final initials =
-        subject.name.split(' ').take(2).map((w) => w[0]).join().toUpperCase();
+    final initials = subject.name
+        .split(' ')
+        .take(2)
+        .map((w) => w[0])
+        .join()
+        .toUpperCase();
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
+      margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFE5E7EB), width: 1.2),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withOpacity(0.03),
+              blurRadius: 15,
+              offset: const Offset(0, 6))
+        ],
       ),
       child: Column(
         children: [
           InkWell(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(24),
             onTap: () => setState(() {
               expanded
                   ? _expandedIndexes.remove(index)
                   : _expandedIndexes.add(index);
             }),
             child: Padding(
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
                   Row(
                     children: [
                       Container(
-                        width: 40,
-                        height: 40,
+                        width: 52,
+                        height: 52,
                         decoration: BoxDecoration(
                             color: bgColor,
-                            borderRadius: BorderRadius.circular(10)),
+                            borderRadius: BorderRadius.circular(16)),
                         child: Center(
                           child: Text(initials,
                               style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: textColor)),
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w900,
+                                  color: primaryColor)),
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 16),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(subject.name,
                                 style: const TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                    color: Color(0xFF0F1729))),
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w900,
+                                    color: Color(0xFF1F2937))),
+                            const SizedBox(height: 4),
                             Text(subject.code,
                                 style: const TextStyle(
-                                    fontSize: 11, color: Colors.black45)),
+                                    fontSize: 12, 
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF6B7280))),
                           ],
                         ),
                       ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                            color: bgColor,
-                            borderRadius: BorderRadius.circular(20)),
-                        child: Text('${subject.percentage.toStringAsFixed(0)}%',
-                            style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: textColor)),
-                      ),
-                      const SizedBox(width: 8),
+                      Text('${subject.percentage.toStringAsFixed(0)}%',
+                          style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                              color: primaryColor)),
+                      const SizedBox(width: 10),
                       AnimatedRotation(
                         turns: expanded ? 0.25 : 0,
                         duration: const Duration(milliseconds: 250),
-                        child: const Icon(Icons.chevron_right,
-                            size: 18, color: Colors.black38),
+                        child: Icon(Icons.arrow_forward_ios_rounded,
+                            size: 14, color: Colors.grey[400]),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 18),
                   ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
+                    borderRadius: BorderRadius.circular(12),
                     child: LinearProgressIndicator(
                       value: subject.percentage / 100,
-                      minHeight: 5,
-                      backgroundColor: const Color(0xFFEEEEEE),
-                      valueColor: AlwaysStoppedAnimation<Color>(accentColor),
+                      minHeight: 10,
+                      backgroundColor: const Color(0xFFF1F5F9),
+                      valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      _miniStat('Present', '${subject.attendedClasses}'),
-                      _miniStat('Absent', '${subject.absentClasses}'),
-                      _miniStat('Late', '${subject.lateCount}'),
-                      _miniStat('Total', '${subject.totalClasses}'),
-                    ],
                   ),
                 ],
               ),
@@ -545,339 +598,199 @@ class _StudentPortalScreenState extends State<StudentPortalScreen> {
           ),
           AnimatedCrossFade(
             firstChild: const SizedBox.shrink(),
-            secondChild: _buildAbsenceLog(
-                subject, accentColor, bgColor, textColor, health),
-            crossFadeState:
-                expanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
-            duration: const Duration(milliseconds: 280),
+            secondChild: _buildDetails(subject, primaryColor, bgColor, isDanger),
+            crossFadeState: expanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+            duration: const Duration(milliseconds: 250),
           ),
         ],
       ),
-    );
+    ).animate(delay: Duration(milliseconds: 50 * index)).slideY(begin: 0.1, curve: Curves.easeOut).fadeIn();
   }
 
-  Widget _miniStat(String label, String value) {
-    return RichText(
-      text: TextSpan(
-        style: const TextStyle(fontSize: 11, color: Colors.black45),
-        children: [
-          TextSpan(text: '$label '),
-          TextSpan(
-              text: value,
-              style: const TextStyle(
-                  fontWeight: FontWeight.w600, color: Color(0xFF0F1729))),
-        ],
-      ),
-    );
-  }
-
-  // ── Absence log ──────────────────────────────────────────────────────────────
-  Widget _buildAbsenceLog(SubjectAttendance subject, Color accentColor,
-      Color bgColor, Color textColor, AttendanceHealth health) {
-    final missed = subject.recentRecords
-        .where((r) =>
-            r.status == AttendanceStatus.absent ||
-            r.status == AttendanceStatus.late)
-        .toList();
-    final needed = subject.classesNeededFor(75);
-
-    String badgeLabel;
-    Color badgeBg;
-    Color badgeText;
-    if (health == AttendanceHealth.safe) {
-      badgeLabel = 'Safe zone';
-      badgeBg = const Color(0xFFE6F1FB);
-      badgeText = const Color(0xFF0C447C);
-    } else if (health == AttendanceHealth.warning) {
-      badgeLabel = 'Attend $needed more';
-      badgeBg = const Color(0xFFFAEEDA);
-      badgeText = const Color(0xFF633806);
-    } else {
-      badgeLabel = 'Attend next $needed';
-      badgeBg = const Color(0xFFFCEBEB);
-      badgeText = const Color(0xFF791F1F);
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Divider(height: 1, color: Colors.black.withValues(alpha: 0.06)),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          child: Row(
-            children: [
-              const Text('MISSED CLASSES',
-                  style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black38,
-                      letterSpacing: 0.5)),
-              const Spacer(),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                decoration: BoxDecoration(
-                    color: badgeBg, borderRadius: BorderRadius.circular(20)),
-                child: Text(badgeLabel,
-                    style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
-                        color: badgeText)),
-              ),
-            ],
-          ),
-        ),
-        if (missed.isEmpty)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-            child: Text('No missed classes — perfect attendance!',
-                style: TextStyle(
-                    fontSize: 12,
-                    color: const Color(0xFF3B6D11),
-                    fontStyle: FontStyle.italic)),
-          )
-        else
-          ...missed.map((r) => _absenceRow(r)),
-        if (health != AttendanceHealth.safe)
-          Container(
-            margin: const EdgeInsets.fromLTRB(14, 4, 14, 14),
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-                color: bgColor, borderRadius: BorderRadius.circular(8)),
-            child: Text(
-              health == AttendanceHealth.warning
-                  ? 'Attend the next $needed consecutive classes to move safely above 75%.'
-                  : 'Critical: You need $needed more classes. Missing even one more makes recovery very difficult.',
-              style: TextStyle(fontSize: 11, color: textColor, height: 1.5),
-            ),
-          ),
-        const SizedBox(height: 4),
-      ],
-    );
-  }
-
-  Widget _absenceRow(AttendanceRecord r) {
-    final isAbsent = r.status == AttendanceStatus.absent;
-    final months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec'
-    ];
-    final day = r.date.day.toString();
-    final month = months[r.date.month - 1];
-
+  Widget _buildDetails(SubjectAttendance subject, Color primaryColor, Color bgColor, bool isDanger) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
-        border: Border(
-            bottom: BorderSide(color: Colors.black.withValues(alpha: 0.05))),
+        color: const Color(0xFFFAFAFA),
+        borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(24), bottomRight: Radius.circular(24)),
+        border: Border(top: BorderSide(color: Colors.grey[200]!)),
       ),
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            padding: const EdgeInsets.symmetric(vertical: 5),
-            decoration: BoxDecoration(
-                color: const Color(0xFFF3F4F8),
-                borderRadius: BorderRadius.circular(8)),
-            child: Column(
-              children: [
-                Text(day,
-                    style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF0F1729),
-                        height: 1)),
-                Text(month,
-                    style:
-                        const TextStyle(fontSize: 10, color: Colors.black45)),
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(r.topic,
-                    style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: Color(0xFF0F1729))),
-                Text('${r.day}  ${r.time}',
-                    style:
-                        const TextStyle(fontSize: 11, color: Colors.black45)),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color:
-                  isAbsent ? const Color(0xFFFCEBEB) : const Color(0xFFFAEEDA),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Text(
-              isAbsent ? 'Absent' : 'Late',
-              style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w500,
-                  color: isAbsent
-                      ? const Color(0xFF791F1F)
-                      : const Color(0xFF633806)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Monthly bar chart ────────────────────────────────────────────────────────
-  Widget _buildMonthlyChart() {
-    final maxVal = _monthlyData
-        .map((m) => (m['present'] as int) + (m['absent'] as int))
-        .reduce(math.max)
-        .toDouble();
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              const Text('Monthly overview',
-                  style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF0F1729))),
-              const Spacer(),
-              // Legend
-              Row(
-                children: [
-                  _legendDot(const Color(0xFF2347D4), 'Present'),
-                  const SizedBox(width: 10),
-                  _legendDot(const Color(0xFFE24B4A), 'Absent'),
-                ],
-              ),
+              _detailStat('Present', '${subject.attendedClasses}', const Color(0xFF059669)),
+              _detailStat('Absent', '${subject.absentClasses}', const Color(0xFFDC2626)),
+              _detailStat('Total', '${subject.totalClasses}', const Color(0xFF1F2937)),
             ],
           ),
-          const SizedBox(height: 16),
-          SizedBox(
-            height: 120,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: _monthlyData.map((m) {
-                final present = (m['present'] as int).toDouble();
-                final absent = (m['absent'] as int).toDouble();
-                final presentH = (present / maxVal) * 90;
-                final absentH = (absent / maxVal) * 90;
-
-                return Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      // Absent bar (top)
-                      Container(
-                        height: absentH,
-                        margin: const EdgeInsets.symmetric(horizontal: 3),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE24B4A),
-                          borderRadius: const BorderRadius.vertical(
-                              top: Radius.circular(4)),
-                        ),
-                      ),
-                      // Present bar (bottom)
-                      Container(
-                        height: presentH,
-                        margin: const EdgeInsets.symmetric(horizontal: 3),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF2347D4),
-                          borderRadius: absentH == 0
-                              ? BorderRadius.circular(4)
-                              : const BorderRadius.vertical(
-                                  bottom: Radius.circular(4)),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(m['month'] as String,
-                          style: const TextStyle(
-                              fontSize: 10, color: Colors.black45)),
-                    ],
+          if (isDanger) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: bgColor,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded,
+                      size: 16, color: primaryColor),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Attend the next ${subject.classesNeededFor(75)} classes to reach 75%.',
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: primaryColor),
+                    ),
                   ),
-                );
-              }).toList(),
+                ],
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _legendDot(Color color, String label) {
-    return Row(
+  Widget _detailStat(String label, String value, [Color color = const Color(0xFF1E293B)]) {
+    return Column(
       children: [
-        Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-        const SizedBox(width: 4),
+        Text(value,
+            style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+                color: color)),
+        const SizedBox(height: 4),
         Text(label,
-            style: const TextStyle(fontSize: 11, color: Colors.black45)),
+            style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF6B7280))),
       ],
     );
   }
-}
 
-// ── Donut painter ─────────────────────────────────────────────────────────────
-class _DonutPainter extends CustomPainter {
-  final double percentage;
-  const _DonutPainter({required this.percentage});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final cx = size.width / 2;
-    final cy = size.height / 2;
-    final radius = (size.width / 2) - 6;
-    const strokeW = 7.0;
-
-    final trackPaint = Paint()
-      ..color = const Color(0xFFE6F1FB)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeW;
-
-    final fillPaint = Paint()
-      ..color = const Color(0xFF2347D4)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeW
-      ..strokeCap = StrokeCap.round;
-
-    canvas.drawCircle(Offset(cx, cy), radius, trackPaint);
-    final sweepAngle = 2 * math.pi * (percentage / 100);
-    canvas.drawArc(
-      Rect.fromCircle(center: Offset(cx, cy), radius: radius),
-      -math.pi / 2,
-      sweepAngle,
-      false,
-      fillPaint,
+  void _showDemoScanner() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        height: MediaQuery.of(context).size.height * 0.85,
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+        ),
+        child: Column(
+          children: [
+            const SizedBox(height: 12),
+            Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
+            const SizedBox(height: 24),
+            const Text('QR SCANNER', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFF6B7280), letterSpacing: 1.5)),
+            const SizedBox(height: 12),
+            const Text('Scan Class Attendance QR', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Color(0xFF1F2937))),
+            const SizedBox(height: 40),
+            
+            Container(
+              width: 250,
+              height: 250,
+              decoration: BoxDecoration(
+                border: Border.all(color: const Color(0xFF0056B3), width: 3),
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  const Icon(Icons.qr_code_2_rounded, size: 100, color: Color(0xFFE5E7EB)),
+                  Container(
+                    width: 220,
+                    height: 2,
+                    color: const Color(0xFF0056B3),
+                  ).animate(onPlay: (c) => c.repeat()).moveY(begin: -100, end: 100, duration: 2000.ms),
+                ],
+              ),
+            ),
+            const Spacer(),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 40),
+              child: Text(
+                'Point your camera at the QR code generated on the teacher\'s screen to mark your attendance.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13, color: Color(0xFF6B7280), fontWeight: FontWeight.w500),
+              ),
+            ),
+            const SizedBox(height: 40),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+              child: SizedBox(
+                width: double.infinity,
+                height: 60,
+                child: ElevatedButton(
+                  onPressed: () => _markDemoAttendance(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1F2937),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  ),
+                  child: const Text('SIMULATE SUCCESSFUL SCAN', style: TextStyle(fontWeight: FontWeight.w900)),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
-  @override
-  bool shouldRepaint(covariant _DonutPainter old) =>
-      old.percentage != percentage;
+  Future<void> _markDemoAttendance(BuildContext context) async {
+    Navigator.pop(context);
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator(color: Color(0xFF0056B3))),
+    );
+
+    final roll = AppStateService().currentUser?['rollNumber'];
+    if (roll != null) {
+       try {
+         await http.post(
+          Uri.parse('${NetworkService.baseUrl}/mark-attendance'),
+          body: jsonEncode({
+            'rollNumber': roll,
+            'subject': 'Artificial Intelligence',
+            'token': 'DEMO_${DateTime.now().millisecondsSinceEpoch}',
+            'timestamp': DateTime.now().toIso8601String(),
+          }),
+          headers: {'Content-Type': 'application/json'},
+        );
+       } catch (_) {}
+       DemoStateService().markAttended(roll, 'Artificial Intelligence');
+    }
+
+    await Future.delayed(const Duration(milliseconds: 1500));
+    if (!mounted) return;
+    Navigator.pop(context);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Row(
+          children: [
+            Icon(Icons.check_circle_rounded, color: Colors.white),
+            SizedBox(width: 12),
+            Text('Attendance Marked Successfully! ✓'),
+          ],
+        ),
+        backgroundColor: const Color(0xFF059669),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+
+    _loadData();
+  }
 }

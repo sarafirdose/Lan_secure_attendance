@@ -21,6 +21,15 @@ dependencies:
   crypto: ^3.0.3
   uuid: ^4.4.2
   intl: ^0.19.0
+  qr_flutter: ^4.1.0
+  fl_chart: ^1.2.0
+  flutter_local_notifications: ^17.2.1
+  timezone: ^0.9.4
+  google_fonts: ^8.0.2
+  logger: ^2.4.0
+  workmanager: ^0.9.0
+  local_auth: ^2.2.0
+  flutter_secure_storage: ^9.0.0
 
 dev_dependencies:
   flutter_test:
