@@ -11,6 +11,7 @@ from functools import wraps
 import os
 import uuid
 import json
+import requests
 from waitress import serve
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -670,7 +671,10 @@ def get_session_context(uid):
             ctx = json.loads(cached)
             if 'history' not in ctx or not isinstance(ctx['history'], list): ctx['history'] = []
             return ctx
+    except Exception as e:
+        logger.warning(f"Redis read error (falling back to MySQL): {e}")
         
+    try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT * FROM ai_session_context WHERE uid = %s", (uid,))
@@ -680,7 +684,9 @@ def get_session_context(uid):
         if res:
             res['pending_data'] = json.loads(res['pending_data']) if res['pending_data'] else {}
             res['history'] = json.loads(res['history']) if res['history'] else []
-            redis_client.setex(f"session_ctx:{uid}", 86400, json.dumps(res))
+            try:
+                redis_client.setex(f"session_ctx:{uid}", 86400, json.dumps(res))
+            except: pass
         return res or {"history": []}
     except: return {"history": []}
 
@@ -787,6 +793,10 @@ class AIAssistant:
             if history:
                 role_instruction += "Stay consistent with previous context. Use a peer-like, friendly tone. "
             
+            context_prompt = ""
+            if history:
+                context_prompt = "Conversation History:\n" + "\n".join([f"{m['role']}: {m['content']}" for m in history]) + "\n\n"
+
             prompt = f"""
             {role_instruction}
             Current Time: {now}

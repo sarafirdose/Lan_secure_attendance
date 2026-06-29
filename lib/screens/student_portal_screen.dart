@@ -119,6 +119,7 @@ class _StudentPortalScreenState extends State<StudentPortalScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'student_scan_attendance_fab',
         onPressed: _showDemoScanner,
         backgroundColor: const Color(0xFF1F2937),
         icon: const Icon(Icons.qr_code_scanner_rounded, color: Colors.white),

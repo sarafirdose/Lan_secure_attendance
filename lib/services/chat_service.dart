@@ -4,20 +4,20 @@ import 'package:uuid/uuid.dart';
 import 'network_service.dart';
 import 'app_state_service.dart';
 import '../models/chat_message.dart';
+import 'authenticated_client.dart';
 
 class ChatService {
   static const _uuid = Uuid();
+  static final _client = AuthenticatedClient();
 
   static Future<ChatMessage> sendMessage(String message) async {
     final baseUrl = NetworkService.baseUrl;
-    final token = AppStateService().token;
     
     try {
-      final response = await http.post(
+      final response = await _client.post(
         Uri.parse("$baseUrl/chat"),
         headers: {
           "Content-Type": "application/json",
-          "Authorization": "Bearer $token",
         },
         body: jsonEncode({
           "message": message,
@@ -57,14 +57,12 @@ class ChatService {
 
   static Future<ChatMessage> confirmAction(String confirmationId, bool confirmed) async {
     final baseUrl = NetworkService.baseUrl;
-    final token = AppStateService().token;
 
     try {
-      final response = await http.post(
+      final response = await _client.post(
         Uri.parse("$baseUrl/chat/confirm"),
         headers: {
           "Content-Type": "application/json",
-          "Authorization": "Bearer $token",
         },
         body: jsonEncode({
           "confirmation_id": confirmationId,

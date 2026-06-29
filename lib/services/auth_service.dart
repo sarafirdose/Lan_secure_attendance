@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'app_state_service.dart';
 import 'sync_service.dart';
 import 'network_service.dart';
+import 'sa_security_service.dart';
 
 enum AuthResult { success, alreadyRegistered, invalidCredentials, wrongDevice, notRegistered, error }
 
@@ -22,16 +23,20 @@ class AuthService {
       final user = AppStateService().currentUser;
       if (user == null) return false;
       
+      final refreshToken = await SaSecurityService().getRefreshToken();
+      if (refreshToken == null || refreshToken.isEmpty) return false;
+      
       final res = await http.post(
         Uri.parse('$_baseUrl/refresh'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'uid': user['uid']}),
+        body: jsonEncode({'refresh_token': refreshToken}),
       ).timeout(const Duration(seconds: 5));
 
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         if (data['access_token'] != null) {
-          await _saveAuth(data['access_token'], user);
+          await _saveAuth(data['access_token'], refreshToken, user);
+          AppStateService().setAuth(user, user['role'], data['access_token']);
           return true;
         }
       }
@@ -57,10 +62,11 @@ class AuthService {
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         final token = data['access_token']; // Use access_token instead of token
+        final refreshToken = data['refresh_token'] ?? '';
         final user = data['user'];
         
         if (token != null) {
-          await _saveAuth(token, user);
+          await _saveAuth(token, refreshToken, user);
           AppStateService().setAuth(user, user['role'], token);
         }
         
@@ -122,9 +128,10 @@ class AuthService {
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         final token = data['access_token'];
+        final refreshToken = data['refresh_token'] ?? '';
         final user = data['user'];
         if (token != null) {
-          await _saveAuth(token, user);
+          await _saveAuth(token, refreshToken, user);
           AppStateService().setAuth(user, 'admin', token);
         }
         return AuthResult.success;
@@ -154,16 +161,18 @@ class AuthService {
     return AuthResult.error;
   }
 
-  static Future<void> _saveAuth(String token, Map<String, dynamic> user) async {
+  static Future<void> _saveAuth(String token, String refreshToken, Map<String, dynamic> user) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_tokenKey, token);
     await prefs.setString(_userKey, jsonEncode(user));
+    await SaSecurityService().saveTokens(token, refreshToken);
   }
 
   static Future<void> signOut() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_tokenKey);
     await prefs.remove(_userKey);
+    await SaSecurityService().clearTokens();
     AppStateService().clearState();
   }
 

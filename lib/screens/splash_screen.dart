@@ -50,7 +50,7 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
       if (i == 2) {
         // Run network discovery with a hard limit to prevent splash freeze
         try {
-          await NetworkService.discoverServer().timeout(const Duration(seconds: 4));
+          await NetworkService.discoverServer().timeout(const Duration(seconds: 10));
         } catch (_) {
           debugPrint('Network Discovery Timeout - Continuing with default IP');
         }

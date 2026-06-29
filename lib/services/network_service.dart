@@ -30,7 +30,7 @@ class NetworkService {
   static String get serverIp {
     switch (currentEnv) {
       case Environment.dev:
-        return '172.26.242.147'; // Local development PC IP
+        return '10.97.45.177'; // Local development PC IP
       case Environment.prod:
         return 'api.secureattend.com'; // Production Server Domain
     }
@@ -64,6 +64,24 @@ class NetworkService {
       ];
       
       String? localIp = await _networkInfo.getWifiIP();
+      
+      if (localIp == null || localIp.isEmpty) {
+        try {
+          final interfaces = await NetworkInterface.list(
+            type: InternetAddressType.IPv4,
+            includeLoopback: false,
+          );
+          for (final iface in interfaces) {
+            for (final addr in iface.addresses) {
+              if (!addr.isLoopback && addr.address != '0.0.0.0') {
+                localIp = addr.address;
+                break;
+              }
+            }
+            if (localIp != null && localIp.isNotEmpty) break;
+          }
+        } catch (_) {}
+      }
       
       if (localIp == null || localIp.isEmpty) {
         // Fallback to testing most common hotspot/home router IPs
